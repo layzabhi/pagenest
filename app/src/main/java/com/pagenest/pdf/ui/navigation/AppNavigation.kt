@@ -177,7 +177,11 @@ fun AppNavigation(
                     val docName = Uri.decode(rawName)
 
                     val readerViewModel = remember(docUri) {
-                        ReaderViewModel(app.pdfViewerManager, app.readingProgressRepository)
+                        ReaderViewModel(
+                            app.pdfViewerManager,
+                            app.readingProgressRepository,
+                            app.bookmarkRepository
+                        )
                     }
 
                     ReaderScreen(

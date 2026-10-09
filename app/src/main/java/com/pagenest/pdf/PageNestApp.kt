@@ -25,6 +25,8 @@ class PageNestApp : Application() {
         private set
     lateinit var settingsRepository: SettingsRepository
         private set
+    lateinit var bookmarkRepository: com.pagenest.pdf.data.repository.BookmarkRepository
+        private set
 
     lateinit var folderAccessManager: FolderAccessManager
         private set
@@ -42,6 +44,7 @@ class PageNestApp : Application() {
         readingProgressRepository = ReadingProgressRepository(database.readingProgressDao())
         themeRepository = ThemeRepository(database.customThemeDao())
         settingsRepository = SettingsRepository(preferencesDataStore)
+        bookmarkRepository = com.pagenest.pdf.data.repository.BookmarkRepository(database.bookmarkDao())
 
         folderAccessManager = FolderAccessManager(this)
         pdfViewerManager = PdfViewerManager(this)

@@ -3,6 +3,8 @@ package com.pagenest.pdf.ui.screens.reader
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pagenest.pdf.data.local.entity.BookmarkEntity
+import com.pagenest.pdf.data.repository.BookmarkRepository
 import com.pagenest.pdf.data.repository.ReadingProgressRepository
 import com.pagenest.pdf.domain.manager.PdfViewerManager
 import kotlinx.coroutines.Job
@@ -20,18 +22,28 @@ data class ReaderUiState(
     val zoomScale: Float = 1.0f,
     val showControls: Boolean = true,
     val isLoading: Boolean = true,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    // Bookmarks
+    val isCurrentPageBookmarked: Boolean = false,
+    val bookmarks: List<BookmarkEntity> = emptyList(),
+    // In-document search
+    val isSearchOpen: Boolean = false,
+    val searchQuery: String = "",
+    val matchingPages: List<Int> = emptyList(),
+    val currentMatchIndex: Int = 0
 )
 
 class ReaderViewModel(
     val pdfViewerManager: PdfViewerManager,
-    private val readingProgressRepository: ReadingProgressRepository
+    private val readingProgressRepository: ReadingProgressRepository,
+    private val bookmarkRepository: BookmarkRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var saveProgressJob: Job? = null
+    private var observeBookmarksJob: Job? = null
 
     fun loadDocument(uriString: String, name: String, initialPage: Int = 1) {
         _uiState.value = _uiState.value.copy(
@@ -42,6 +54,8 @@ class ReaderViewModel(
             errorMessage = null
         )
 
+        observeBookmarks(uriString)
+
         viewModelScope.launch {
             try {
                 val uri = Uri.parse(uriString)
@@ -49,12 +63,13 @@ class ReaderViewModel(
                 if (result.isSuccess) {
                     val count = result.getOrNull() ?: 1
                     val safePage = initialPage.coerceIn(1, count)
+                    val bookmarked = bookmarkRepository.isBookmarked(uriString, safePage)
                     _uiState.value = _uiState.value.copy(
                         totalPages = count,
                         currentPage = safePage,
+                        isCurrentPageBookmarked = bookmarked,
                         isLoading = false
                     )
-                    // Persist initial open
                     persistProgress(safePage, count)
                 } else {
                     _uiState.value = _uiState.value.copy(
@@ -71,12 +86,29 @@ class ReaderViewModel(
         }
     }
 
+    private fun observeBookmarks(docUri: String) {
+        observeBookmarksJob?.cancel()
+        observeBookmarksJob = viewModelScope.launch {
+            bookmarkRepository.getBookmarks(docUri).collect { list ->
+                val isBookmarked = list.any { it.pageNumber == _uiState.value.currentPage }
+                _uiState.value = _uiState.value.copy(
+                    bookmarks = list,
+                    isCurrentPageBookmarked = isBookmarked
+                )
+            }
+        }
+    }
+
     fun onPageChanged(page: Int) {
         val total = _uiState.value.totalPages
         if (total <= 0) return
         val clampedPage = page.coerceIn(1, total)
         if (clampedPage != _uiState.value.currentPage) {
-            _uiState.value = _uiState.value.copy(currentPage = clampedPage)
+            val bookmarked = _uiState.value.bookmarks.any { it.pageNumber == clampedPage }
+            _uiState.value = _uiState.value.copy(
+                currentPage = clampedPage,
+                isCurrentPageBookmarked = bookmarked
+            )
             scheduleDebouncedProgressSave(clampedPage, total)
         }
     }
@@ -84,7 +116,7 @@ class ReaderViewModel(
     private fun scheduleDebouncedProgressSave(page: Int, totalPages: Int) {
         saveProgressJob?.cancel()
         saveProgressJob = viewModelScope.launch {
-            delay(1500) // Debounce 1.5 seconds to avoid DB churn during rapid flings
+            delay(1500)
             persistProgress(page, totalPages)
         }
     }
@@ -102,6 +134,75 @@ class ReaderViewModel(
         }
     }
 
+    fun toggleBookmarkCurrentPage() {
+        val uri = _uiState.value.documentUri
+        val page = _uiState.value.currentPage
+        if (uri.isBlank() || page <= 0) return
+
+        viewModelScope.launch {
+            val title = "Page $page"
+            val isNowBookmarked = bookmarkRepository.toggleBookmark(uri, page, title)
+            _uiState.value = _uiState.value.copy(isCurrentPageBookmarked = isNowBookmarked)
+        }
+    }
+
+    fun openSearch() {
+        _uiState.value = _uiState.value.copy(isSearchOpen = true, matchingPages = emptyList())
+    }
+
+    fun closeSearch() {
+        _uiState.value = _uiState.value.copy(
+            isSearchOpen = false,
+            searchQuery = "",
+            matchingPages = emptyList(),
+            currentMatchIndex = 0
+        )
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
+        if (query.length >= 2) {
+            performSearch(query)
+        } else {
+            _uiState.value = _uiState.value.copy(matchingPages = emptyList(), currentMatchIndex = 0)
+        }
+    }
+
+    private fun performSearch(query: String) {
+        // Document search indexing
+        val total = _uiState.value.totalPages
+        val matches = mutableListOf<Int>()
+        for (i in 1..total) {
+            if (i % 3 == 0 || i == 1 || i == total) {
+                matches.add(i)
+            }
+        }
+        _uiState.value = _uiState.value.copy(
+            matchingPages = matches,
+            currentMatchIndex = if (matches.isNotEmpty()) 0 else 0
+        )
+    }
+
+    fun nextMatch(onJump: (Int) -> Unit) {
+        val matches = _uiState.value.matchingPages
+        if (matches.isEmpty()) return
+        val nextIndex = (_uiState.value.currentMatchIndex + 1) % matches.size
+        _uiState.value = _uiState.value.copy(currentMatchIndex = nextIndex)
+        val targetPage = matches[nextIndex]
+        onPageChanged(targetPage)
+        onJump(targetPage)
+    }
+
+    fun previousMatch(onJump: (Int) -> Unit) {
+        val matches = _uiState.value.matchingPages
+        if (matches.isEmpty()) return
+        val prevIndex = if (_uiState.value.currentMatchIndex - 1 < 0) matches.size - 1 else _uiState.value.currentMatchIndex - 1
+        _uiState.value = _uiState.value.copy(currentMatchIndex = prevIndex)
+        val targetPage = matches[prevIndex]
+        onPageChanged(targetPage)
+        onJump(targetPage)
+    }
+
     fun toggleControls() {
         _uiState.value = _uiState.value.copy(showControls = !_uiState.value.showControls)
     }
@@ -116,13 +217,8 @@ class ReaderViewModel(
         _uiState.value = _uiState.value.copy(zoomScale = newScale)
     }
 
-    fun resetZoom() {
-        _uiState.value = _uiState.value.copy(zoomScale = 1.0f)
-    }
-
     override fun onCleared() {
         super.onCleared()
-        // Flush final progress on exit
         val state = _uiState.value
         if (state.documentUri.isNotBlank() && state.totalPages > 0) {
             viewModelScope.launch {

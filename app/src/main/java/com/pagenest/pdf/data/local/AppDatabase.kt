@@ -15,15 +15,17 @@ import com.pagenest.pdf.data.local.entity.ReadingProgressEntity
     entities = [
         DocumentEntity::class,
         ReadingProgressEntity::class,
-        CustomThemeEntity::class
+        CustomThemeEntity::class,
+        com.pagenest.pdf.data.local.entity.BookmarkEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
     abstract fun readingProgressDao(): ReadingProgressDao
     abstract fun customThemeDao(): CustomThemeDao
+    abstract fun bookmarkDao(): com.pagenest.pdf.data.local.dao.BookmarkDao
 
     companion object {
         @Volatile
