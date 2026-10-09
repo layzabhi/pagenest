@@ -35,6 +35,21 @@ data class LibraryUiState(
     val sortOption: SortOption = SortOption.NAME_ASC
 )
 
+private data class LibraryDocumentData(
+    val rawDocs: List<PdfDocument>,
+    val progresses: List<ReadingProgress>,
+    val folderUri: String?,
+    val folderName: String?
+)
+
+private data class LibraryFilterData(
+    val query: String,
+    val filter: DocumentFilter,
+    val viewMode: ViewMode,
+    val sortOption: SortOption,
+    val loading: Boolean
+)
+
 class LibraryViewModel(
     private val documentRepository: DocumentRepository,
     private val readingProgressRepository: ReadingProgressRepository,
@@ -55,28 +70,40 @@ class LibraryViewModel(
     private val _thumbnails = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
     val thumbnails = _thumbnails.asStateFlow()
 
-    val uiState: StateFlow<LibraryUiState> = combine(
+    private val documentDataFlow = combine(
         documentRepository.getAllDocuments(),
         readingProgressRepository.getAllReadingProgress(),
         settingsRepository.selectedFolderUri,
-        settingsRepository.selectedFolderName,
+        settingsRepository.selectedFolderName
+    ) { rawDocs, progresses, folderUri, folderName ->
+        LibraryDocumentData(rawDocs, progresses, folderUri, folderName)
+    }
+
+    private val filterDataFlow = combine(
         _searchQuery,
         _activeFilter,
         settingsRepository.viewMode,
         settingsRepository.sortOption,
         _isLoading
-    ) { rawDocs, progresses, folderUri, folderName, query, filter, viewMode, sortOption, loading ->
-        val progressMap = progresses.associateBy { it.documentUri }
+    ) { query, filter, viewMode, sortOption, loading ->
+        LibraryFilterData(query, filter, viewMode, sortOption, loading)
+    }
+
+    val uiState: StateFlow<LibraryUiState> = combine(
+        documentDataFlow,
+        filterDataFlow
+    ) { docData, filterData ->
+        val progressMap = docData.progresses.associateBy { it.documentUri }
 
         // Filter by search query
-        var filtered = if (query.isBlank()) {
-            rawDocs
+        var filtered = if (filterData.query.isBlank()) {
+            docData.rawDocs
         } else {
-            rawDocs.filter { it.displayName.contains(query, ignoreCase = true) }
+            docData.rawDocs.filter { it.displayName.contains(filterData.query, ignoreCase = true) }
         }
 
         // Filter by category
-        filtered = when (filter) {
+        filtered = when (filterData.filter) {
             DocumentFilter.ALL -> filtered
             DocumentFilter.IN_PROGRESS -> filtered.filter {
                 val prog = progressMap[it.uriString]
@@ -93,7 +120,7 @@ class LibraryViewModel(
         }
 
         // Sort documents
-        val sorted = when (sortOption) {
+        val sorted = when (filterData.sortOption) {
             SortOption.NAME_ASC -> filtered.sortedBy { it.displayName.lowercase() }
             SortOption.NAME_DESC -> filtered.sortedByDescending { it.displayName.lowercase() }
             SortOption.DATE_MODIFIED_DESC -> filtered.sortedByDescending { it.lastModified }
@@ -109,13 +136,13 @@ class LibraryViewModel(
         LibraryUiState(
             documents = sorted,
             progressMap = progressMap,
-            isLoading = loading,
-            selectedFolderUri = folderUri,
-            selectedFolderName = folderName,
-            searchQuery = query,
-            activeFilter = filter,
-            viewMode = viewMode,
-            sortOption = sortOption
+            isLoading = filterData.loading,
+            selectedFolderUri = docData.folderUri,
+            selectedFolderName = docData.folderName,
+            searchQuery = filterData.query,
+            activeFilter = filterData.filter,
+            viewMode = filterData.viewMode,
+            sortOption = filterData.sortOption
         )
     }.stateIn(
         scope = viewModelScope,
@@ -149,13 +176,11 @@ class LibraryViewModel(
     private suspend fun scanCurrentFolder(treeUri: Uri) {
         _isLoading.value = true
         try {
-            // Read scan mode
-            val scanMode = ScanMode.DIRECT // Default, or read from settings
+            val scanMode = ScanMode.DIRECT
             val docs = folderAccessManager.scanFolder(treeUri, scanMode)
             documentRepository.clearFolderDocuments(treeUri.toString())
             documentRepository.saveDocuments(docs)
 
-            // Generate thumbnails for first few documents asynchronously
             docs.take(10).forEach { doc ->
                 loadThumbnail(doc)
             }

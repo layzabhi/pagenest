@@ -22,25 +22,49 @@ data class SettingsUiState(
     val selectedFolderName: String? = null
 )
 
+private data class DisplayPreferences(
+    val scanMode: ScanMode,
+    val viewMode: ViewMode,
+    val sortOption: SortOption
+)
+
+private data class AppPreferences(
+    val appearanceMode: AppearanceMode,
+    val fullScreenReader: Boolean,
+    val selectedFolderName: String?
+)
+
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    val uiState: StateFlow<SettingsUiState> = combine(
+    private val displayPrefs = combine(
         settingsRepository.scanMode,
         settingsRepository.viewMode,
-        settingsRepository.sortOption,
+        settingsRepository.sortOption
+    ) { scan, view, sort ->
+        DisplayPreferences(scan, view, sort)
+    }
+
+    private val appPrefs = combine(
         settingsRepository.appearanceMode,
         settingsRepository.fullScreenReader,
         settingsRepository.selectedFolderName
-    ) { scan, view, sort, appearance, fullScreen, folderName ->
+    ) { appearance, fullScreen, folderName ->
+        AppPreferences(appearance, fullScreen, folderName)
+    }
+
+    val uiState: StateFlow<SettingsUiState> = combine(
+        displayPrefs,
+        appPrefs
+    ) { display, app ->
         SettingsUiState(
-            scanMode = scan,
-            viewMode = view,
-            sortOption = sort,
-            appearanceMode = appearance,
-            fullScreenReader = fullScreen,
-            selectedFolderName = folderName
+            scanMode = display.scanMode,
+            viewMode = display.viewMode,
+            sortOption = display.sortOption,
+            appearanceMode = app.appearanceMode,
+            fullScreenReader = app.fullScreenReader,
+            selectedFolderName = app.selectedFolderName
         )
     }.stateIn(
         scope = viewModelScope,
