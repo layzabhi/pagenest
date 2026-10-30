@@ -166,6 +166,16 @@ class LibraryViewModel(
         }
     }
 
+    fun onSingleFileSelected(fileUri: Uri, onReady: (PdfDocument) -> Unit) {
+        viewModelScope.launch {
+            folderAccessManager.persistFolderPermission(fileUri)
+            val doc = folderAccessManager.extractDocumentMetadata(fileUri)
+            documentRepository.saveDocuments(listOf(doc))
+            loadThumbnail(doc)
+            onReady(doc)
+        }
+    }
+
     fun refreshFolder() {
         val folderUri = uiState.value.selectedFolderUri ?: return
         viewModelScope.launch {

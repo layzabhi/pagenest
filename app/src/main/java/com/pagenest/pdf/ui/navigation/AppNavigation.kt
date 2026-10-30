@@ -30,13 +30,30 @@ import com.pagenest.pdf.ui.screens.themes.ThemeEditorScreen
 import com.pagenest.pdf.ui.screens.themes.ThemesLibraryScreen
 import com.pagenest.pdf.ui.screens.themes.ThemesViewModel
 
+import androidx.compose.runtime.LaunchedEffect
+
+data class IncomingDoc(
+    val uri: String,
+    val name: String,
+    val page: Int = 1
+)
+
 @Composable
 fun AppNavigation(
-    app: PageNestApp
+    app: PageNestApp,
+    incomingDoc: IncomingDoc? = null,
+    onIncomingDocHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    LaunchedEffect(incomingDoc) {
+        val doc = incomingDoc ?: return@LaunchedEffect
+        val route = NavScreen.Reader.createRoute(doc.uri, doc.name, doc.page)
+        navController.navigate(route)
+        onIncomingDocHandled()
+    }
 
     // ViewModels instantiated using app container dependencies
     val libraryViewModel = remember {
@@ -173,8 +190,14 @@ fun AppNavigation(
                     val rawName = backStackEntry.arguments?.getString("docName") ?: ""
                     val page = backStackEntry.arguments?.getInt("initialPage") ?: 1
 
-                    val docUri = Uri.decode(rawUri)
-                    val docName = Uri.decode(rawName)
+                    val docUri = try {
+                        val decodedBytes = android.util.Base64.decode(rawUri, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+                        val decodedStr = String(decodedBytes, Charsets.UTF_8)
+                        if (decodedStr.startsWith("content://") || decodedStr.startsWith("file://")) decodedStr else rawUri
+                    } catch (_: Exception) {
+                        rawUri
+                    }
+                    val docName = rawName.ifBlank { "Document.pdf" }
 
                     val readerViewModel = remember(docUri) {
                         ReaderViewModel(

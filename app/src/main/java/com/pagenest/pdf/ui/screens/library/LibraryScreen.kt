@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -41,6 +42,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,19 +84,46 @@ fun LibraryScreen(
         }
     }
 
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { fileUri: Uri? ->
+        if (fileUri != null) {
+            viewModel.onSingleFileSelected(fileUri) { doc ->
+                onOpenDocument(doc, 1)
+            }
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { folderPickerLauncher.launch(null) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(16.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.CreateNewFolder,
-                    contentDescription = "Select Folder"
-                )
+                FloatingActionButton(
+                    onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PictureAsPdf,
+                        contentDescription = "Open PDF"
+                    )
+                }
+
+                FloatingActionButton(
+                    onClick = { folderPickerLauncher.launch(null) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CreateNewFolder,
+                        contentDescription = "Select Folder"
+                    )
+                }
             }
         }
     ) { padding ->
@@ -205,23 +234,49 @@ fun LibraryScreen(
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             } else if (uiState.selectedFolderUri == null) {
-                EmptyStateView(
-                    icon = Icons.Default.Folder,
-                    title = "No Folder Selected",
-                    description = "Choose a folder on your device to discover and organize your PDF documents.",
-                    actionLabel = "Select Folder",
-                    onActionClick = { folderPickerLauncher.launch(null) },
-                    modifier = Modifier.weight(1f)
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    EmptyStateView(
+                        icon = Icons.Default.Folder,
+                        title = "No Folder Selected",
+                        description = "Choose a folder on your device to discover and organize your PDF documents, or open an individual PDF directly.",
+                        actionLabel = "Select Folder",
+                        onActionClick = { folderPickerLauncher.launch(null) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) }) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open Single PDF File")
+                    }
+                }
             } else if (uiState.documents.isEmpty()) {
-                EmptyStateView(
-                    icon = Icons.Default.Folder,
-                    title = "No PDF Documents Found",
-                    description = "The selected folder does not contain any PDF files. You can refresh or choose another folder.",
-                    actionLabel = "Change Folder",
-                    onActionClick = { folderPickerLauncher.launch(null) },
-                    modifier = Modifier.weight(1f)
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    EmptyStateView(
+                        icon = Icons.Default.Folder,
+                        title = "No PDF Documents Found",
+                        description = "The selected folder does not contain any PDF files. You can refresh or choose another folder.",
+                        actionLabel = "Change Folder",
+                        onActionClick = { folderPickerLauncher.launch(null) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { filePickerLauncher.launch(arrayOf("application/pdf")) }) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open PDF File Directly")
+                    }
+                }
             } else {
                 if (uiState.viewMode == ViewMode.GRID) {
                     LazyVerticalGrid(

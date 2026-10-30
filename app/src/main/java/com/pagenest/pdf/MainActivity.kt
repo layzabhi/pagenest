@@ -19,13 +19,17 @@ import androidx.lifecycle.lifecycleScope
 import com.pagenest.pdf.domain.model.AppearanceMode
 import com.pagenest.pdf.domain.model.AppTheme
 import com.pagenest.pdf.ui.navigation.AppNavigation
+import com.pagenest.pdf.ui.navigation.IncomingDoc
 import com.pagenest.pdf.ui.navigation.NavScreen
 import com.pagenest.pdf.ui.theme.PageNestTheme
 import com.pagenest.pdf.ui.theme.ThemePresets
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    private val incomingDocFlow = MutableStateFlow<IncomingDoc?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +38,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val activeThemeId by app.settingsRepository.activeThemeId.collectAsState(initial = "builtin_light")
             val appearanceMode by app.settingsRepository.appearanceMode.collectAsState(initial = AppearanceMode.SYSTEM)
+            val incomingDoc by incomingDocFlow.collectAsState()
 
             var currentTheme by remember { mutableStateOf<AppTheme>(ThemePresets.Light) }
 
@@ -48,7 +53,11 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    AppNavigation(app = app)
+                    AppNavigation(
+                        app = app,
+                        incomingDoc = incomingDoc,
+                        onIncomingDocHandled = { incomingDocFlow.value = null }
+                    )
                 }
             }
         }
@@ -68,23 +77,35 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             try {
+                // Attempt to persist read permission if granted
+                try {
+                    val flags = intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    if (flags != 0) {
+                        contentResolver.takePersistableUriPermission(dataUri, flags)
+                    }
+                } catch (_: Exception) {}
+
                 var fileName = "Document.pdf"
-                contentResolver.query(dataUri, null, null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1) {
-                            fileName = cursor.getString(nameIndex) ?: fileName
+                try {
+                    contentResolver.query(dataUri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            if (nameIndex != -1) {
+                                fileName = cursor.getString(nameIndex) ?: fileName
+                            }
                         }
                     }
-                }
+                } catch (_: Exception) {}
 
                 // Retrieve last saved page if already in history
                 val progress = app.readingProgressRepository.getProgress(dataUri.toString())
                 val startPage = progress?.lastViewedPage ?: 1
 
-                // Launch Reader
-                // Note: The AppNavigation handles navigation, and if launched from external app,
-                // the user lands directly into reading mode.
+                incomingDocFlow.value = IncomingDoc(
+                    uri = dataUri.toString(),
+                    name = fileName,
+                    page = startPage
+                )
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -86,4 +86,35 @@ class FolderAccessManager(private val context: Context) {
             e.printStackTrace()
         }
     }
+
+    fun extractDocumentMetadata(uri: Uri): PdfDocument {
+        var name = "Document.pdf"
+        var size = 0L
+        val modified = System.currentTimeMillis()
+        try {
+            val projection = arrayOf(
+                android.provider.OpenableColumns.DISPLAY_NAME,
+                android.provider.OpenableColumns.SIZE
+            )
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIdx != -1) {
+                        name = cursor.getString(nameIdx) ?: name
+                    }
+                    val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (sizeIdx != -1 && !cursor.isNull(sizeIdx)) {
+                        size = cursor.getLong(sizeIdx)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return PdfDocument(
+            uriString = uri.toString(),
+            displayName = name,
+            sizeBytes = size,
+            lastModified = modified
+        )
+    }
 }
